@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Database Layer.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Database Parameters"
+        Parameters:
+          - DatabaseInstanceIdentifier
+          - DatabaseName
+          - DatabaseUsername
+          - DatabaseUserPassword
+          - DatabaseEngine
+          - EngineVersion
+          - DBInstanceClass
+          - AllocatedStorage
+          - DatabaseBackupRetentionPeriod
+          - MultiAZDatabase
+          - PubliclyAccessibleDatabase
+
+Parameters:
+  DatabaseInstanceIdentifier:
+    Description: The database instance identifier.
+    Default: my-sql-db
+    Type: String
+
+  DatabaseName:
+    Description: MySQL Database Name.
+    Type: String
+    Default: "Testdb"
+
+  DatabaseUsername:
+    Description: The master username for the RDS instance.
+    Type: String
+    Default: "admin"
+
+  DatabaseUserPassword:
+    Description: The SSM parameter name that holds the database password.
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: database-password
+
+  DatabaseEngine:
+    Description: The database engine to use for the RDS instance.
+    Type: String
+    Default: mysql
+    AllowedValues:
+      - mysql
+      - postgres
+      - mariadb
+      - oracle
+      - Aurora
+    ConstraintDescription: Must be a valid database engine.
+
+  EngineVersion:
+    Description: The version of the database engine.
+    Type: String
+    Default: 8.0.39
+    ConstraintDescription: Must be a valid engine version for the selected database engine.
+
+  DBInstanceClass:
+    Description: The instance type for the RDS database.
+    Type: String
+    Default: "db.t3.micro"
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+    ConstraintDescription: Must be a valid RDS instance class.
+
+  AllocatedStorage:
+    Description: The allocated storage size in GiB.
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 1000
+    ConstraintDescription: Storage size must be between 20 GiB and 1000 GiB.
+
+  DatabaseBackupRetentionPeriod:
+    Default: 1
+    Description: The number of days to retain automated backups.
+    MinValue: 1
+    MaxValue: 35
+    Type: Number
+
+  MultiAZDatabase:
+    AllowedValues:
+      - true
+      - false
+    Description: Whether to deploy a Multi-AZ database.
+    Type: String
+    Default: false
+    ConstraintDescription: Must be either 'true' or 'false'.
+
+  PubliclyAccessibleDatabase:
+    Description: Whether the database instance should be publicly accessible.
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Must be either 'true' or 'false'.
+
+Resources:
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS instance.
+      SubnetIds:
+        - !ImportValue "VPCstack-PrivateSubnet1Id"
+        - !ImportValue "VPCstack-PrivateSubnet2Id"
+      Tags:
+        - Key: Name
+          Value: DBSubnetGroup
+
+  MyDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: !Ref AllocatedStorage
+      BackupRetentionPeriod: !Ref DatabaseBackupRetentionPeriod
+      DBInstanceIdentifier: !Ref DatabaseInstanceIdentifier
+      DBName: !Ref DatabaseName
+      MasterUsername: !Ref DatabaseUsername
+      MasterUserPassword: !Ref  DatabaseUserPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: !Ref DatabaseEngine
+      EngineVersion: !Ref EngineVersion
+      MultiAZ: !Ref MultiAZDatabase
+      PubliclyAccessible: !Ref PubliclyAccessibleDatabase
+      VPCSecurityGroups:
+        - !ImportValue "VPCstack-DatabaseSecurityGroupId"
+Outputs:
+  RDSInstanceEndpoint:
+    Description: The endpoint of the RDS instance.
+    Value: !GetAtt MyDBInstance.Endpoint.Address
+    Export:
+      Name: !Sub "${AWS::StackName}-RDSInstanceEndpoint"
+
+  RDSInstancePort:
+    Description: The port of the RDS instance.
+    Value: !GetAtt MyDBInstance.Endpoint.Port
+    Export:
+      Name: !Sub "${AWS::StackName}-RDSInstancePort"
+
+  RDSInstanceIdentifier:
+    Description: The instance identifier of the RDS instance.
+    Value: !Ref MyDBInstance
+    Export:
+      Name: !Sub "${AWS::StackName}-RDSInstanceIdentifier"

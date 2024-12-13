@@ -1,0 +1,331 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  This AWS CloudFormation template defines an application layer with an Auto Scaling group, Application Load Balancer (ALB), 
+  and EC2 instances. It ensures high availability, secure HTTPS communication, and scalable storage using Amazon EFS. 
+  The template also integrates monitoring with CloudWatch and alerts via SNS, automating responses to traffic demands and operational 
+  metrics. Designed with modularity and reusability in mind, it seamlessly connects to a pre-existing VPC stack for networking 
+  and security configurations.
+
+Metadata:
+  AWS::CloudFormation::Interface: 
+    ParameterGroups:
+      - 
+        Label: 
+          default: "Launch Template Parameters"
+        Parameters: 
+          - InstanceType
+          - KeyName
+          - ImageId
+          - WebServerLaunchTemplateName
+      - 
+        Label: 
+          default: "Certification Arn"
+        Parameters: 
+          - ACMCertificateArn 
+      - 
+        Label: 
+          default: "Notification Email"
+        Parameters:    
+          - OperatorEmail
+             
+Parameters:
+  InstanceType:
+    Type: String
+    Default: "t2.micro"
+    Description: EC2 instance type.
+    AllowedValues:
+      - t2.micro
+      - t3.small
+      - t3.medium
+
+  KeyName:
+    Description: Name of an existing EC2 KeyPair for SSH access.
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: keyName
+    
+  ImageId:
+    Description: The latest Amazon Linux 2 AMI from the Parameter Store.
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+  ACMCertificateArn:
+    Description: The ARN of the ACM Certificate for HTTPS Listener.
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: ACMcertification
+  
+  OperatorEmail: 
+    Description: A valid Email address to notify me when their is a scale up and downs.
+    Type: String
+    Default: kallolalaaicha@gmail.com
+
+  WebServerLaunchTemplateName:
+    AllowedPattern: '[a-zA-Z0-9\(\)\.\-/_]+'
+    Description: the name of my Launch Template
+    Default: MyServer-Launch-Template
+    Type: String
+
+Resources:
+# Create an Application Load Balancer.
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: MyApplicationLoadBalancer
+      Scheme: internet-facing
+      SecurityGroups:
+        - !ImportValue "VPCstack-ALBSecurityGroupId"
+      Subnets:
+        - !ImportValue "VPCstack-PublicSubnet1Id"
+        - !ImportValue "VPCstack-PublicSubnet2Id"
+      LoadBalancerAttributes:
+        - Key: "load_balancing.cross_zone.enabled"
+          Value: "true"
+      Tags:
+        - Key: Name
+          Value: ALB-Project
+
+# Create a Listener on Port 80  
+  ALBHTTPlistener:
+   Type: "AWS::ElasticLoadBalancingV2::Listener"
+   Properties:
+     DefaultActions:
+       - Type: "redirect"
+         RedirectConfig:
+           Protocol: "HTTPS"
+           Port: 443
+           Host: "#{host}"
+           Path: "/#{path}"
+           Query: "#{query}"
+           StatusCode: "HTTP_301"
+     LoadBalancerArn: !Ref ApplicationLoadBalancer
+     Port: 80
+     Protocol: "HTTP"       
+
+# Create a Listener on Port 443
+  ALBHTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !Ref ACMCertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup  
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+
+# Create a Target Group      
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      Matcher:
+        HttpCode: 200,302
+      Name: MyWebServers 
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      VpcId: !ImportValue "VPCstack-VPCId"
+      Tags:
+        - Key: Name
+          Value: TG-Project
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Ref WebServerLaunchTemplateName
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Arn: !GetAtt SSMInstanceProfile.Arn
+        ImageId: !Ref ImageId  
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        Monitoring:
+          Enabled: true
+        SecurityGroupIds:
+          - !ImportValue "VPCstack-WebSecurityGroupId"
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: MyEC2Instance
+                      
+  SSMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: EC2-SSM-Role
+
+  SSMInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref SSMRole
+      Path: "/"         
+
+  MyAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: MyAutoScalingGroup
+      VPCZoneIdentifier:
+        - !ImportValue "VPCstack-PublicSubnet1Id"
+        - !ImportValue "VPCstack-PublicSubnet2Id"
+      HealthCheckGracePeriod: 300 
+      HealthCheckType: ELB 
+      LaunchTemplate:
+        LaunchTemplateName: !Ref WebServerLaunchTemplateName
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MinSize: 1
+      MaxSize: 4
+      DesiredCapacity: 2
+      Tags:
+        - Key: Name
+          Value: MyAutoScalingGroup
+          PropagateAtLaunch: true           
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      NotificationConfigurations:
+        - NotificationTypes:
+            - autoscaling:EC2_INSTANCE_LAUNCH 
+            - autoscaling:EC2_INSTANCE_TERMINATE   
+          TopicARN: !Ref SNSTopic
+
+  ScalingUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref MyAutoScalingGroup
+      Cooldown: 60
+      ScalingAdjustment: 1
+        
+  ScalingDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref MyAutoScalingGroup
+      Cooldown: 60
+      ScalingAdjustment: -1
+
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: CloudWatchAlarmNotifications
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref OperatorEmail  
+
+  HighCPUAlarmScaleUp:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: ScaleUpOnHighCPU
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref ScalingUpPolicy
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref MyAutoScalingGroup
+
+
+  CPUUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: HighCPUUtilization
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average    
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 70
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref MyAutoScalingGroup
+      AlarmActions:
+        - !Ref SNSTopic
+        
+  ALBRequestCountAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: HighALBRequestCount
+      MetricName: RequestCount
+      Namespace: AWS/ApplicationELB
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt ApplicationLoadBalancer.LoadBalancerArn
+      AlarmActions:
+        - !Ref  SNSTopic     
+  
+  EFS:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      PerformanceMode: generalPurpose
+      Encrypted: true
+      FileSystemTags:
+        - Key: Name
+          Value: Second-EFS
+  
+  EFSMountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFS
+      SubnetId: !ImportValue "VPCstack-PublicSubnet1Id"
+      SecurityGroups:
+        - !ImportValue "VPCstack-EFSSecurityGroupId"
+
+  EFSMountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFS
+      SubnetId: !ImportValue "VPCstack-PublicSubnet2Id"
+      SecurityGroups:
+        - !ImportValue "VPCstack-EFSSecurityGroupId"
+
+Outputs:
+  ALBEndpoint:
+    Description: "The URL of the Application Load Balancer."
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+
+  EFSId:
+    Description: "The ID of the EFS File System."
+    Value: !Ref EFS
+
+  AutoScalingGroupName:
+    Description: "The name of the Auto Scaling Group."
+    Value: !Ref MyAutoScalingGroup
+
+  SNSTopicARN:
+    Description: "The ARN of the SNS Topic used for CloudWatch Alarm notifications."
+    Value: !Ref SNSTopic
+
+  LaunchTemplateId:
+    Description: "The ID of the Launch Template used for EC2 instances."
+    Value: !Ref LaunchTemplate
+
+   
