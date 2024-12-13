@@ -2,7 +2,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
-  Description: >
   This AWS CloudFormation template defines an application layer with an Auto Scaling group, Application Load Balancer (ALB), 
   EC2 instances, and integration with Amazon Route 53 for domain management. The template ensures high availability, 
   secure HTTPS communication using ACM certificates, and scalable storage with Amazon EFS. 
