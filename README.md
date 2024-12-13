@@ -15,16 +15,15 @@ This layer creates a robust networking infrastructure to support a scalable and 
 - *Security Groups: Provides stateful firewall protection for instances and resources.
 - *This network infrastructure ensures a solid foundation for hosting applications with secure, scalable, and high-availability capabilities.
 
-##Application Layer
- This AWS CloudFormation template defines the application layer for the multi-tier architecture, incorporating several key components to ensure high availability, scalability, and security. The main features of this layer include:
+##The Application Layer for a multi-tier architecture, incorporating several key components to ensure high availability, scalability, and security. The main features of this layer include:
 
-- *Auto Scaling Group: Automatically adjusts the number of EC2 instances based on traffic demand to ensure optimal performance.
-- *Application Load Balancer (ALB): Distributes incoming traffic across multiple EC2 instances for fault tolerance and to maintain high availability.
-- *EC2 Instances: The compute resources that run the application, dynamically scaled by the Auto Scaling group.
-- *Amazon EFS (Elastic File System): Provides scalable and shared file storage for the application, enabling EC2 instances to share files across availability zones.
-- *HTTPS Communication: Ensures secure communication between users and the application through SSL/TLS encryption.
-- *CloudWatch Monitoring and SNS Alerts: Integrated monitoring for real-time insights into application performance, with automated alerts sent to the operator's email when scaling events or other operational issues occur.
-- *Designed with modularity and reusability in mind, this template seamlessly integrates with an existing VPC stack, utilizing pre-configured networking and security components.
+- *Auto Scaling Group (ASG): Automatically adjusts the number of EC2 instances based on traffic demand to maintain optimal performance and resource efficiency.
+- *Application Load Balancer (ALB): Distributes incoming traffic across multiple EC2 instances to ensure fault tolerance and high availability of the application.
+- *Route 53 DNS Integration: The template creates a Route 53 record set to associate the ALB with the domain shashabou.com. This ensures that user requests to your domain are routed seamlessly to the ALB, which handles traffic distribution to the EC2 instances.
+- *EC2 Instances: Compute resources running the application, dynamically scaled by the Auto Scaling group to handle varying traffic loads.
+- *Amazon EFS (Elastic File System): Provides scalable, shared file storage across EC2 instances, allowing them to share data seamlessly across availability zones.
+- *HTTPS Communication: Secures user communication with the application via SSL/TLS encryption, ensuring data privacy and integrity. The ALB is configured to use an SSL/TLS certificate from AWS Certificate Manager (ACM) for HTTPS traffic.
+- *CloudWatch Monitoring & SNS Alerts: Provides real-time monitoring for application health and performance. Automated alerts are sent to the operator’s email on scaling events, high CPU utilization, or other critical operational issues.
 
 ##Database Layer
  This AWS CloudFormation template defines the database layer for the multi-tier architecture, utilizing Amazon RDS to provide a fully managed relational database service. The main features of this layer include:
