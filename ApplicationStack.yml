@@ -2,11 +2,13 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
+  Description: >
   This AWS CloudFormation template defines an application layer with an Auto Scaling group, Application Load Balancer (ALB), 
-  and EC2 instances. It ensures high availability, secure HTTPS communication, and scalable storage using Amazon EFS. 
-  The template also integrates monitoring with CloudWatch and alerts via SNS, automating responses to traffic demands and operational 
-  metrics. Designed with modularity and reusability in mind, it seamlessly connects to a pre-existing VPC stack for networking 
-  and security configurations.
+  EC2 instances, and integration with Amazon Route 53 for domain management. The template ensures high availability, 
+  secure HTTPS communication using ACM certificates, and scalable storage with Amazon EFS. 
+  It also integrates monitoring via CloudWatch, with alerts sent through SNS, enabling automated responses to traffic demands 
+  and operational metrics. This architecture is modular and reusable, designed to seamlessly integrate with a pre-existing 
+  VPC stack for networking and security configurations.
 
 Metadata:
   AWS::CloudFormation::Interface: 
