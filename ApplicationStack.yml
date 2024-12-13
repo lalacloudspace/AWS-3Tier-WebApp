@@ -29,7 +29,7 @@ Metadata:
           default: "Notification Email"
         Parameters:    
           - OperatorEmail
-             
+
 Parameters:
   InstanceType:
     Type: String
@@ -56,18 +56,23 @@ Parameters:
     Default: ACMcertification
   
   OperatorEmail: 
-    Description: A valid Email address to notify me when their is a scale up and downs.
+    Description: A valid Email address to notify me when there is a scale-up and scale-down event.
     Type: String
     Default: kallolalaaicha@gmail.com
 
   WebServerLaunchTemplateName:
     AllowedPattern: '[a-zA-Z0-9\(\)\.\-/_]+'
-    Description: the name of my Launch Template
+    Description: The name of my Launch Template
     Default: MyServer-Launch-Template
     Type: String
 
+  HostedZoneId:
+    Description: The ID of the existing Route 53 Hosted Zone for the domain  
+    Type: AWS::SSM::Parameter::Value<String>
+    Default:  HostedZoneID
+
 Resources:
-# Create an Application Load Balancer.
+  # Application Load Balancer
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -85,24 +90,35 @@ Resources:
         - Key: Name
           Value: ALB-Project
 
-# Create a Listener on Port 80  
-  ALBHTTPlistener:
-   Type: "AWS::ElasticLoadBalancingV2::Listener"
-   Properties:
-     DefaultActions:
-       - Type: "redirect"
-         RedirectConfig:
-           Protocol: "HTTPS"
-           Port: 443
-           Host: "#{host}"
-           Path: "/#{path}"
-           Query: "#{query}"
-           StatusCode: "HTTP_301"
-     LoadBalancerArn: !Ref ApplicationLoadBalancer
-     Port: 80
-     Protocol: "HTTP"       
+  # Route 53 Record Set to map domain to ALB
+  ALBRecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Name: shashabou.com  
+      Type: A
+      HostedZoneId: !Ref HostedZoneId  
+      AliasTarget:
+        DNSName: !GetAtt ApplicationLoadBalancer.DNSName
+        HostedZoneId: !GetAtt ApplicationLoadBalancer.CanonicalHostedZoneID
 
-# Create a Listener on Port 443
+  # Create a Listener on Port 80
+  ALBHTTPlistener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - Type: "redirect"
+          RedirectConfig:
+            Protocol: "HTTPS"
+            Port: 443
+            Host: "#{host}"
+            Path: "/#{path}"
+            Query: "#{query}"
+            StatusCode: "HTTP_301"
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: "HTTP"
+
+  # Create a Listener on Port 443
   ALBHTTPSListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -115,7 +131,7 @@ Resources:
       Port: 443
       Protocol: HTTPS
 
-# Create a Target Group      
+  # Create a Target Group
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -126,7 +142,7 @@ Resources:
       UnhealthyThresholdCount: 5
       Matcher:
         HttpCode: 200,302
-      Name: MyWebServers 
+      Name: MyWebServers
       Port: 80
       Protocol: HTTP
       TargetType: instance
@@ -154,7 +170,7 @@ Resources:
             Tags:
               - Key: Name
                 Value: MyEC2Instance
-                      
+
   SSMRole:
     Type: AWS::IAM::Role
     Properties:
@@ -177,7 +193,7 @@ Resources:
     Properties:
       Roles:
         - !Ref SSMRole
-      Path: "/"         
+      Path: "/"
 
   MyAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -186,8 +202,8 @@ Resources:
       VPCZoneIdentifier:
         - !ImportValue "VPCstack-PublicSubnet1Id"
         - !ImportValue "VPCstack-PublicSubnet2Id"
-      HealthCheckGracePeriod: 300 
-      HealthCheckType: ELB 
+      HealthCheckGracePeriod: 300
+      HealthCheckType: ELB
       LaunchTemplate:
         LaunchTemplateName: !Ref WebServerLaunchTemplateName
         Version: !GetAtt LaunchTemplate.LatestVersionNumber
@@ -197,13 +213,13 @@ Resources:
       Tags:
         - Key: Name
           Value: MyAutoScalingGroup
-          PropagateAtLaunch: true           
+          PropagateAtLaunch: true
       TargetGroupARNs:
         - !Ref TargetGroup
       NotificationConfigurations:
         - NotificationTypes:
-            - autoscaling:EC2_INSTANCE_LAUNCH 
-            - autoscaling:EC2_INSTANCE_TERMINATE   
+            - autoscaling:EC2_INSTANCE_LAUNCH
+            - autoscaling:EC2_INSTANCE_TERMINATE
           TopicARN: !Ref SNSTopic
 
   ScalingUpPolicy:
@@ -213,7 +229,7 @@ Resources:
       AutoScalingGroupName: !Ref MyAutoScalingGroup
       Cooldown: 60
       ScalingAdjustment: 1
-        
+
   ScalingDownPolicy:
     Type: AWS::AutoScaling::ScalingPolicy
     Properties:
@@ -228,7 +244,7 @@ Resources:
       TopicName: CloudWatchAlarmNotifications
       Subscription:
         - Protocol: email
-          Endpoint: !Ref OperatorEmail  
+          Endpoint: !Ref OperatorEmail
 
   HighCPUAlarmScaleUp:
     Type: AWS::CloudWatch::Alarm
@@ -247,41 +263,6 @@ Resources:
         - Name: AutoScalingGroupName
           Value: !Ref MyAutoScalingGroup
 
-
-  CPUUtilizationAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: HighCPUUtilization
-      MetricName: CPUUtilization
-      Namespace: AWS/EC2
-      Statistic: Average    
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 70
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: AutoScalingGroupName
-          Value: !Ref MyAutoScalingGroup
-      AlarmActions:
-        - !Ref SNSTopic
-        
-  ALBRequestCountAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: HighALBRequestCount
-      MetricName: RequestCount
-      Namespace: AWS/ApplicationELB
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 1000
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: LoadBalancer
-          Value: !GetAtt ApplicationLoadBalancer.LoadBalancerArn
-      AlarmActions:
-        - !Ref  SNSTopic     
-  
   EFS:
     Type: AWS::EFS::FileSystem
     Properties:
@@ -290,7 +271,7 @@ Resources:
       FileSystemTags:
         - Key: Name
           Value: Second-EFS
-  
+
   EFSMountTarget1:
     Type: AWS::EFS::MountTarget
     Properties:
@@ -312,6 +293,10 @@ Outputs:
     Description: "The URL of the Application Load Balancer."
     Value: !GetAtt ApplicationLoadBalancer.DNSName
 
+  Route53Record:
+    Description: "The DNS record name pointing to the ALB."
+    Value: !Ref ALBRecordSet
+
   EFSId:
     Description: "The ID of the EFS File System."
     Value: !Ref EFS
@@ -327,5 +312,3 @@ Outputs:
   LaunchTemplateId:
     Description: "The ID of the Launch Template used for EC2 instances."
     Value: !Ref LaunchTemplate
-
-   
